@@ -16,6 +16,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# [CW] Optionally fix overlap (with warning) when adding annotation 
+# [CW] to interval tier; new annotation takes priority over old.
+
+
 from __future__ import division
 
 import bisect
@@ -196,12 +200,14 @@ class Tier(object):
         fset=_set_end_time,
         doc='End time.')
 
-    def add_annotation(self, obj):
+    def add_annotation(self, obj, fix_overlap=True):
         '''Adds an annotation object to this tier.
 
         The annotation object is inserted at the correct position within the
         tier. If the space is already (partially) occupied by a different
-        annotation object, a ValueError is raised.
+        annotation object, then a ValueError is raised (fix_overlap is False), 
+        or the new annotation object's times are adjusted to avoid overlap 
+        (fix_overlap is True, the default).
         '''
         if ((len(self._objects) > 0 and obj.start_time >= self._objects[-1].end_time) 
                 or len(self._objects) == 0): # can we simply append obj?
@@ -210,14 +216,26 @@ class Tier(object):
             overlapping_objects = self.get_annotations_between_timepoints(
                 obj.start_time, obj.end_time, 
                 left_overlap=True, right_overlap=True)
-            if overlapping_objects == []:
+            if len(overlapping_objects) == 0:
                 start_timepoints = [interval.start_time for interval in self._objects]
                 position = bisect.bisect_left(start_timepoints, obj.start_time)
                 self._objects.insert(position, obj)
+            elif fix_overlap:
+                for obj_old in overlapping_objects:
+                    if obj_old.start_time <= obj.start_time \
+                        and obj_old.end_time > obj.start_time:
+                        obj_old.end_time = obj.start_time
+                    if obj_old.end_time >= obj.end_time \
+                        and obj_old.start_time < obj.end_time:
+                        obj_old.start_time = obj.end_time
+                # Retry adding new annotation without further fixes.
+                print(f'Could not add object {repr(obj)} to this tier without fixing overlap.')
+                self.add_annotation(obj, fix_overlap=False)
             else:
                 raise ValueError(
                     'Could not add object {0} to this tier: Overlap.'.format(
-                        repr(obj)))
+                    repr(obj)))
+                
 
     def add_annotations(self, objects):
         '''Add a sequence of annotation objects.'''
